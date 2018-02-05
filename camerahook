@@ -1,0 +1,51 @@
+#!/bin/bash -x
+
+# Add the following rule to /etc/udev/rules.d 
+# *** file: 99-camera.rules ***
+# ACTION=="add",KERNEL=="sd*", SUBSYSTEMS=="usb", ATTRS{product}=="DSC-RX100M3", RUN+="/root/bin/camerahook SONY %k"
+#
+# Then run
+# $ udevadm control -R
+
+(
+set -o pipefail
+CAMERA_NAME=${1}
+DEVICE=$2
+MOUNT_POINT="/mnt/${CAMERA_NAME}${DEVICE}"
+
+pwd
+
+mkdir -p ${MOUNT_POINT}
+mount /dev/${DEVICE} ${MOUNT_POINT}
+
+function clean_up {
+  umount ${MOUNT_POINT}
+  rmdir ${MOUNT_POINT}
+}
+
+trap clean_up EXIT
+
+if [ -d ${MOUNT_POINT}/DCIM ] ; then 
+  
+  mkdir -p /mnt/3000GB/${CAMERA_NAME}-CLONE
+  
+  new_folder="/mnt/3000GB/${CAMERA_NAME}-CLONE/$(date +%Y%m%d)"
+  
+  mkdir -p ${new_folder}
+  touch ${new_folder}/INCOMPLETE
+  
+  find /mnt/3000GB/${CAMERA_NAME}-CLONE/ -name COMPLETE 
+  last_completed=$(dirname $(find /mnt/3000GB/${CAMERA_NAME}-CLONE/ -name COMPLETE | sort | tail -n 1))
+  
+  echo "Date:                  $(date)" | tee -a ${new_folder}/log
+  echo "Will copy into folder: ${new_folder}" | tee -a ${new_folder}/log
+  echo "Will link to folder:   ${last_completed}" | tee -a ${new_folder}/log
+  
+  rsync -av --link-dest=$last_completed/ /mnt/${CAMERA_NAME}/DCIM/* ${new_folder}/ | tee -a ${new_folder}/log
+  if [ $? -eq 0 ] ; then 
+    mv ${new_folder}/INCOMPLETE ${new_folder}/COMPLETE
+  fi 
+fi 
+
+) &>> /var/log/$(basename $0).log
+
